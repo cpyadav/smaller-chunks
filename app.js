@@ -9,7 +9,9 @@ const routes = require('./routes');
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
-
+app.get('/', (req, res) => {
+  res.send('Server is running');
+});
 // API Routes
 app.use('/api', routes);
 
