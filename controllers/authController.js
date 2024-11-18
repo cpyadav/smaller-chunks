@@ -266,6 +266,7 @@ exports.cities = async (req, res) => {
   }
 };
 exports.zipcodelist = async (req, res) => {
+  console.log('Received request on /api/auth/zipcodelist');
   const { cityId} = req.body;
   try {
     const zipcode = await User.getZipcodeList(cityId);
