@@ -1,15 +1,31 @@
 const jwt = require('jsonwebtoken');
+const { errorResponse } = require('../utils/responseHelpers'); // Assuming you have a utility for responses
 
-// Middleware to protect routes with JWT verification
+// Middleware to verify access token and attach user ID to request
 exports.protect = (req, res, next) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ message: 'Not authorized, token missing' });
+  const authorizationHeader = req.headers.authorization;
+  
+  // Check if authorization header exists and is properly formatted
+  if (!authorizationHeader || !authorizationHeader.startsWith('Bearer ')) {
+    return errorResponse(res, 'Access token required', 401);
+  }
+
+  // Extract token from the header
+  const accessToken = authorizationHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    // Verify the token using the secret
+    const decodedToken = jwt.verify(accessToken, process.env.JWT_SECRET);
+
+    // Attach userId to the request object for downstream use
+    req.userId = decodedToken.id;
+
+    // Proceed to the next middleware or route handler
     next();
   } catch (err) {
-    res.status(401).json({ message: 'Invalid token' });
+    if (err.name === 'TokenExpiredError') {
+      return errorResponse(res, 'Access token expired', 401);
+    }
+    return errorResponse(res, 'Invalid access token', 403);
   }
 };

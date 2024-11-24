@@ -4,8 +4,88 @@ const nodemailer = require('nodemailer'); // For sending emails
 const crypto = require('crypto'); // For generating random OTP
 const bcrypt = require('bcrypt'); // Optional: To hash the OTP before storing
 const { successResponse, errorResponse } = require('../utils/responseHelpers');
+const errorCodes = require('../utils/errorCodes');
+const { generateAccessToken, generateRefreshToken } = require('../utils/tokenUtils');
 
 exports.signup = async (req, res) => {
+  const { email, password,firstName,lastName} = req.body;
+  try {
+    // Check if the user already exists
+    if (!email || typeof email !== 'string') {
+      return errorResponse(res, 'Email is required and must be a valid string', errorCodes.BAD_REQUEST);
+    }
+
+    const existingUser = await User.getUserByEmail(email);
+    if (existingUser) {
+      if (existingUser.otp_status === 'pending') {
+        const otp = crypto.randomInt(100000, 999999).toString();
+        const hashedOtp = await bcrypt.hash(otp, 10);
+        const otpExpiration = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+        // Update OTP details in the database
+        await User.storeOtp(existingUser.id, hashedOtp, otpExpiration);
+
+        // Resend OTP email
+        await sendOtpEmail(email, otp);
+
+        return successResponse(
+          res,
+          'Signup incomplete. A new OTP has been sent to your email. Please verify to complete signup.',
+          { userId: existingUser.id,otp:otp },
+          200
+        );
+      }
+      return errorResponse(res, 'User already exists', errorCodes.BAD_REQUEST);
+    }
+    // Create new user
+    const userId = await User.createUser(email, password,firstName,lastName);
+    await User.updateUserStatus(userId, {
+      otp_status: 'pending',
+      email_status: 'pending',
+      referral_status: 'not applied',
+      profile_completion: 'incomplete',
+      landlord_status: 'not applicable'
+    });
+    const otp = crypto.randomInt(100000, 999999).toString();
+    const hashedOtp = await bcrypt.hash(otp, 10); // Optionally hash OTP
+    const otpExpiration = Date.now() + 10 * 60 * 1000; 
+    await User.storeOtp(userId, hashedOtp,otpExpiration); // Store hashed OTP
+    await sendOtpEmail(email, otp);
+    return successResponse(res, 'Signup successful. Please verify OTP sent to your email.', {  userId: userId,otp:otp }, errorCodes.USER_CREATED);
+  } catch (err) {
+    return errorResponse(res, 'Failed to create user', 500);
+  }
+};
+exports.refreshToken = async (req, res) => {
+  const { refreshToken } = req.body;
+  // Check if refresh token is provided
+  if (!refreshToken) {
+    return errorResponse(res, 'Refresh token required', 401);
+  }
+  try {
+    // Verify refresh token
+    const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    // Optionally validate token in DB to check its validity
+    const isTokenValid = await User.verifyRefreshToken(payload.id, refreshToken);
+    if (!isTokenValid) {
+      return errorResponse(res, 'Invalid refresh token', errorCodes.FORBIDDEN);
+    }
+    const newAccessToken = generateAccessToken(payload.id);
+    const newRefreshToken = generateRefreshToken(payload.id);
+
+    // Update refresh token in DB
+    await User.storeRefreshToken(payload.id, newRefreshToken);
+
+    return successResponse(res, 'Token refreshed successfully', {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    });
+  } catch (err) {
+    return errorResponse(res, 'Invalid or expired refresh token', errorCodes.FORBIDDEN);
+  }
+};
+
+exports.signup_old = async (req, res) => {
   const { email, password,first_name,last_name, referal_code,isLandlord, landlord_name, landlord_phone,security_amount } = req.body;
   try {
     // Check if the user already exists
@@ -59,6 +139,47 @@ exports.signup = async (req, res) => {
     return errorResponse(res, 'Failed to create user', 500);
   }
 };
+
+exports.paymentChunkInfo = async (req, res) => {
+  const { referalCode,isLandlord, landlordName, landlordPhone,securityAmount,address,country,city,state,zipcode } = req.body;
+  try {
+    const userId = req.userId;
+  //console.log(userId); return false;
+    let referrer = null;
+    if (referalCode) {
+      // Validate referral code
+      referrer = await User.getUserByReferralCode(referalCode);
+      if (!referrer) {
+        return errorResponse(res, 'Invalid referral code', 400);
+      }
+    }
+    // Create new user
+
+    if (referrer) {
+      await User.createReferral(referrer.id, userId, referalCode);
+      await User.applyReferralBonus(referrer.id, userId);
+    }
+    if(securityAmount){
+      await User.storeSecurityDeposite(userId, securityAmount);
+    }
+    if (isLandlord) {
+      if (!landlordName || !landlordPhone) {
+        return errorResponse(res, 'Landlord name and phone are required', 500);
+      }
+      await User.createLandlord(userId, landlordName, landlordPhone,);
+    }
+    await User.updateUserDetails(userId, {
+      address: address,
+      country: country,
+      city: city,
+      state:state,
+      zipcode: zipcode
+    });
+    return successResponse(res, 'Payment check details updated successfully', { userId }, 200);
+  } catch (err) {
+    return errorResponse(res, 'Failed to create user', 500);
+  }
+};
 exports.userstatus = async (req, res) => {
   const { userId } = req.body;
   try {
@@ -94,12 +215,15 @@ exports.verifyOtp = async (req, res) => {
     await User.verifyUser(userId);
 
     // Generate JWT token
-    const access_token = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const access_token = generateAccessToken(userId);
+    const refreshToken = generateRefreshToken(userId);
+    await User.storeRefreshToken(userId, refreshToken);
 
     res.status(200).json({
       data: {
         message: 'OTP verified successfully',
-        access_token,
+        accessToken:access_token,
+        refreshToken,
         userId,
       },
     });
@@ -205,21 +329,44 @@ exports.forgotPassword = async (req, res) => {
 };
 exports.login = async (req, res) => {
   const { email, password } = req.body;
+
   try {
     // Find user by email
     const user = await User.getUserByEmail(email);
     if (!user) {
-      return res.status(400).json({ error: 'Invalid credentials' });
+      return errorResponse(res, 'Invalid credentials', 400);
     }
     // Compare passwords
     const isMatch = await User.comparePassword(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ error: 'Invalid credentials' });
+      return errorResponse(res, 'Invalid credentials', 400);
     }
-    // Generate a JWT token
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    return successResponse(res, 'Login successfully', { token, userId: user.id }, 200);
+    // Generate new tokens
+    const accessToken = generateAccessToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    // Update refresh token in the database
+    await User.storeRefreshToken(user.id, refreshToken);
+
+    // Decode tokens for expiry times
+    const decodedAccessToken = jwt.decode(accessToken);
+    const decodedRefreshToken = jwt.decode(refreshToken);
+
+    // Return success response
+    return successResponse(
+      res,
+      'Login successfully',
+      {
+        accessToken,
+        refreshToken,
+        userId: user.id,
+        expires_in: decodedAccessToken.exp - Math.floor(Date.now() / 1000),
+        refresh_expires_in: decodedRefreshToken.exp - Math.floor(Date.now() / 1000),
+      },
+      200
+    );
   } catch (err) {
+    console.error('Error during login:', err.message);
     res.status(500).json({ error: 'Failed to login' });
   }
 };
@@ -266,7 +413,6 @@ exports.cities = async (req, res) => {
   }
 };
 exports.zipcodelist = async (req, res) => {
-  console.log('Received request on /api/auth/zipcodelist');
   const { cityId} = req.body;
   try {
     const zipcode = await User.getZipcodeList(cityId);
@@ -274,6 +420,19 @@ exports.zipcodelist = async (req, res) => {
       return errorResponse(res, 'No Record found', 500);
     }
     return successResponse(res, 'zipcode list', { zipcode }, 200);
+
+  } catch (err) {
+    return errorResponse(res, 'No Record found', 500);
+  }
+};
+exports.calculateRent = async (req, res) => {
+  const { rent } = req.body;
+  try {
+    // const zipcode = await User.getZipcodeList(cityId);
+    // if (!zipcode) {
+    //   return errorResponse(res, 'No Record found', 500);
+    // }
+    return successResponse(res, 'Currenr rent', { calculateRent: process.env.PAYMENTRENT_FORMULA }, 200);
 
   } catch (err) {
     return errorResponse(res, 'No Record found', 500);

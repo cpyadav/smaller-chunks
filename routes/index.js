@@ -11,6 +11,9 @@ router.post('/auth/signup', authController.signup);
 router.post('/auth/verifyotp', authController.verifyOtp);
 router.post('/auth/resendOtp', authController.resendOtp);
 router.post('/auth/login', authController.login);
+router.post('/auth/refreshtoken', authController.refreshToken);
+router.post('/auth/paymentChunkInfo',protect, authController.paymentChunkInfo);
+router.get('/auth/calculaterent', authController.calculateRent);
 
 router.post('/auth/forgotpassword', authController.forgotPassword);
 router.post('/auth/verifyforgotpassword', authController.verifyForgotPassword);

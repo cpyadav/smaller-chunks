@@ -31,6 +31,35 @@ const User = {
       throw error; // Rethrow the error for higher-level handling
     }
   },  
+  storeRefreshToken: async (userId, refreshToken) => {
+    try {
+      const sql = `
+      UPDATE users
+      SET user_refresh_token = ?
+      WHERE id = ?`;
+      const [result] = await db.execute(sql, [
+        refreshToken,
+        userId
+      ]);
+      console.log(result);
+      return result[0];
+    } catch (error) {
+      console.error('Error updating user status:', error.message);
+      throw error; // Rethrow the error for higher-level handling
+    }
+  }, 
+  verifyRefreshToken: async (userId, refreshToken) => {
+    try {
+      const [rows] = await db.execute(
+        'SELECT user_refresh_token FROM users WHERE id = ? AND user_refresh_token = ?',
+        [userId, refreshToken]
+      );
+      return rows.length > 0; // Returns true if a match is found
+    } catch (error) {
+      console.error('Error verifying refresh token:', error.message);
+      throw error;
+    }
+  },  
   updateUserStatus: async (userId, statusUpdates) => {
     const { otp_status, email_status, referral_status, profile_completion, landlord_status } = statusUpdates;
 
@@ -52,7 +81,29 @@ const User = {
       console.error('Error updating user status:', error.message);
       throw error; // Rethrow the error for higher-level handling
     }
-  },  
+  },   
+  updateUserDetails: async (userId, statusUpdates) => {
+    const { address, country, city, state, zipcode } = statusUpdates;
+
+    try {
+      const sql = `
+      UPDATE users
+      SET address = ?, country = ?, city = ?, state = ?, zipcode = ?
+      WHERE id = ?`;
+      const [result] = await db.execute(sql, [
+        address,
+        country,
+        city,
+        state,
+        zipcode,
+        userId
+      ]);
+      return result;
+    } catch (error) {
+      console.error('Error updating user status:', error.message);
+      throw error; // Rethrow the error for higher-level handling
+    }
+  }, 
   getUserByReferralCode : async (referralCode) => {
     try {
       const [rows] = await db.execute('SELECT * FROM users WHERE referral_code = ?', [referralCode]);
