@@ -14,6 +14,8 @@ router.post('/auth/login', authController.login);
 router.post('/auth/refreshtoken', authController.refreshToken);
 router.post('/auth/paymentChunkInfo',protect, authController.paymentChunkInfo);
 router.get('/auth/calculaterent', authController.calculateRent);
+router.get('/auth/getPaymentChunkInfo',protect, authController.getPaymentChunkInfo);
+
 
 router.post('/auth/forgotpassword', authController.forgotPassword);
 router.post('/auth/verifyforgotpassword', authController.verifyForgotPassword);
@@ -31,6 +33,7 @@ router.post('/plaid/get_account_info', plaidController.getAccountInfo);
 router.post('/plaid/link-plaid', plaidController.linkPlaid);
 router.post('/plaid/deduct', plaidController.deductPayment);
 router.post('/plaid/verifyBankAccount', plaidController.verifyBankAccount);
+router.post('/plaid/getPlaidLinkToken',protect, plaidController.getPlaidLinkToken);
 
 
 // Stripe routes

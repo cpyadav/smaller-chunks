@@ -4,6 +4,9 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const plaid = require('plaid');
 const User = require('../models/userModel');
 const { successResponse, errorResponse } = require('../utils/responseHelpers');
+const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
+const errorCodes = require('../utils/errorCodes');
 
 // Initialize Plaid client
 // const plaidClient = new plaid.PlaidApi({
@@ -82,13 +85,62 @@ exports.exchangeToken = async (x, res) => {
     });
   }
 };
+exports.getPlaidLinkToken = async (req, res) => {
+  const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID;
+  const PLAID_SECRET = process.env.PLAID_SECRET;
+  let clientUserId = req.userId;
+  // Validate userId from req and fall back to generating a UUID if invalid
+  if (!clientUserId || typeof clientUserId !== 'string' || clientUserId.trim().length < 1) {
+    console.warn("Invalid or missing userId. Generating a fallback UUID.");
+    clientUserId = uuidv4(); // Generate a UUID if userId is invalid
+  }
+  const requestData = {
+    client_id: PLAID_CLIENT_ID,
+    secret: PLAID_SECRET,
+    user: {
+      client_user_id: clientUserId,
+      phone_number: "+1 415 5550123",
+    },
+    client_name: "Personal Finance App",
+    products: ["transactions"],
+    transactions: {
+      days_requested: 730,
+    },
+    country_codes: ["US"],
+    language: "en",
+    webhook: "https://sample-web-hook.com",
+    redirect_uri: "https://domainname.com/oauth-page.html",
+    account_filters: {
+      depository: {
+        account_subtypes: ["checking", "savings"],
+      },
+      credit: {
+        account_subtypes: ["credit card"],
+      },
+    },
+  };
+
+  try {
+    const response = await axios.post('https://sandbox.plaid.com/link/token/create', requestData, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error creating Plaid link token:', error.response?.data || error.message);
+    return errorResponse(res, 'Error creating Plaid link token', errorCodes.BAD_REQUEST);
+  }
+};
+
 // Link Plaid account and create Stripe customer
 
 
 
 exports.linkPlaid = async (req, res) => {
-  const { public_token,userId } = req.body;
-
+  const { public_token,} = req.body;
+  const userId = req.userId;
   try {
     // Exchange Plaid public token for access token
     const tokenResponse = await plaidClient.itemPublicTokenExchange({
@@ -162,8 +214,8 @@ exports.linkPlaid = async (req, res) => {
 };
 exports.deductPayment = async (req, res) => {
   try {
-    const { userId, amount } = req.body;
-
+    const {amount } = req.body;
+    const userId = req.userId;
     // Retrieve user info (ensure the bank account is verified)
     // const user = await User.getUserById(userId);
     // if (!user) return res.status(404).json({ error: 'User not found' });

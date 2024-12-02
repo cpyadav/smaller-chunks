@@ -180,6 +180,20 @@ exports.paymentChunkInfo = async (req, res) => {
     return errorResponse(res, 'Failed to create user', 500);
   }
 };
+exports.getPaymentChunkInfo = async (req, res) => {
+  const userId = req.userId;
+  try {
+    // Fetch OTP and expiration time from DB
+    const result = await User.getUserCurrentStatus(userId);
+    if (!result) {
+      return errorResponse(res, 'Not data found by this user', 500);
+    }
+    return successResponse(res, 'Current user status', { result }, 200);
+  } catch (error) {
+    return errorResponse(res, 'Failed to create user', 500);
+  }
+};
+
 exports.userstatus = async (req, res) => {
   const { userId } = req.body;
   try {
@@ -218,15 +232,24 @@ exports.verifyOtp = async (req, res) => {
     const access_token = generateAccessToken(userId);
     const refreshToken = generateRefreshToken(userId);
     await User.storeRefreshToken(userId, refreshToken);
+    await User.updateUserSteps(userId, 'signupstatus');
+    const decodedAccessToken = jwt.decode(access_token);
+    const decodedRefreshToken = jwt.decode(refreshToken);
 
-    res.status(200).json({
-      data: {
+    // Return success response
+    return successResponse(
+      res,
+      'OTP verified successfully',
+      {
         message: 'OTP verified successfully',
         accessToken:access_token,
         refreshToken,
-        userId,
+        userId: userId,
+        expires_in: decodedAccessToken.exp - Math.floor(Date.now() / 1000),
+        refresh_expires_in: decodedRefreshToken.exp - Math.floor(Date.now() / 1000),
       },
-    });
+      200
+    );
   } catch (error) {
     console.error('Error verifying OTP:', error.message);
     res.status(500).json({ error: 'Failed to verify OTP' });

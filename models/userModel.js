@@ -82,13 +82,29 @@ const User = {
       throw error; // Rethrow the error for higher-level handling
     }
   },   
+  updateUserSteps: async (userId, statusUpdates) => {
+    try {
+      const sql = `
+      UPDATE users
+      SET profile_completion = ?
+      WHERE id = ?`;
+      const [result] = await db.execute(sql, [
+        statusUpdates,
+        userId
+      ]);
+      return result;
+    } catch (error) {
+      console.error('Error updating user status:', error.message);
+      throw error; // Rethrow the error for higher-level handling
+    }
+  },  
   updateUserDetails: async (userId, statusUpdates) => {
     const { address, country, city, state, zipcode } = statusUpdates;
 
     try {
       const sql = `
       UPDATE users
-      SET address = ?, country = ?, city = ?, state = ?, zipcode = ?
+      SET address = ?, country = ?, city = ?, state = ?, zipcode = ?,profile_completion
       WHERE id = ?`;
       const [result] = await db.execute(sql, [
         address,
@@ -96,6 +112,7 @@ const User = {
         city,
         state,
         zipcode,
+        'paymentinfocompleted',
         userId
       ]);
       return result;
@@ -151,6 +168,20 @@ const User = {
   getUserStatus: async (userId) => {
     try {
       const [rows, fields] = await db.execute('SELECT * FROM users WHERE id = ?', [userId]);
+      if (rows.length === 0) {
+        console.log('No user found with this userId');
+        return null; // Return null if no user exists
+      }
+  
+      return rows[0]; // Return the first user found
+    } catch (error) {
+      console.error('Error fetching user by email:', error.message);
+      throw error; // Rethrow the error for higher-level handling
+    }
+  },
+  getUserCurrentStatus: async (userId) => {
+    try {
+      const [rows, fields] = await db.execute('SELECT email,referral_code,referral_bonus,address,country,city,state,zipcode,plaid_access_token,stripe_customer_id,stripe_payment_method_id,first_name,last_name,profile_completion as currentUserStatus FROM users WHERE id = ?', [userId]);
       if (rows.length === 0) {
         console.log('No user found with this userId');
         return null; // Return null if no user exists
