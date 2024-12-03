@@ -44,14 +44,14 @@ exports.signup = async (req, res) => {
       email_status: 'pending',
       referral_status: 'not applied',
       profile_completion: 'incomplete',
-      landlord_status: 'not applicable'
+      landlord_status: 'not applicable',
     });
     const otp = crypto.randomInt(100000, 999999).toString();
     const hashedOtp = await bcrypt.hash(otp, 10); // Optionally hash OTP
     const otpExpiration = Date.now() + 10 * 60 * 1000; 
     await User.storeOtp(userId, hashedOtp,otpExpiration); // Store hashed OTP
     await sendOtpEmail(email, otp);
-    return successResponse(res, 'Signup successful. Please verify OTP sent to your email.', {  userId: userId,otp:otp }, errorCodes.USER_CREATED);
+    return successResponse(res, 'Signup successful. Please verify OTP sent to your email.', {  userId: userId,otp:otp,email:email,firstName:firstName,lastName:lastName }, errorCodes.USER_CREATED);
   } catch (err) {
     return errorResponse(res, 'Failed to create user', 500);
   }
