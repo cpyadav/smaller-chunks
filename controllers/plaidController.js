@@ -109,7 +109,7 @@ exports.getPlaidLinkToken = async (req, res) => {
     country_codes: ["US"],
     language: "en",
     webhook: "https://sample-web-hook.com",
-    redirect_uri: "https://domainname.com/oauth-page.html",
+    redirect_uri: null,
     account_filters: {
       depository: {
         account_subtypes: ["checking", "savings"],
